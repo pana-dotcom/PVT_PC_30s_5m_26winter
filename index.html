@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>PVT 反応時間テスト</title>
+
+<style>
+body {
+    text-align: center;
+    font-family: Arial;
+    margin-top: 100px;
+}
+
+#box {
+    width: 300px;
+    height: 200px;
+    background: gray;
+    margin: auto;
+    line-height: 200px;
+    font-size: 40px;
+    color: white;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+}
+
+#box.waiting {
+    font-size: 80px;
+}
+
+button {
+    margin-top: 20px;
+    font-size: 18px;
+    padding: 10px 20px;
+}
+
+.instruction {
+    font-size: 40px;
+    font-weight: bold;
+}
+</style>
+</head>
+
+<body>
+
+<p class="instruction">赤になったらすぐEnterキー！</p>
+
+<button id="startBtn">テスト開始</button>
+
+<div id="box" class="waiting">✖</div>
+
+<script>
+
+let testDuration = 270000; // 4分30秒
+
+let startTime;
+let taskStartTime;
+let taskEndTime;
+
+let waiting = false;
+let isRunning = false;
+
+let nextStimulusPerfTime;
+
+let results = [];
+
+const box = document.getElementById("box");
+const startBtn = document.getElementById("startBtn");
+
+let keyLocked = false;
+let forceEndTimer;
+
+function formatTime(date) {
+
+    const h = date.getHours();
+    const m = String(date.getMinutes()).padStart(2, "0");
+    const s = String(date.getSeconds()).padStart(2, "0");
+
+    return `${h}:${m}:${s}`;
+}
+
+//====================
+// テスト開始
+//====================
+
+startBtn.addEventListener("click", () => {
+
+    results = [];
+
+    isRunning = true;
+
+    taskStartTime = new Date();
+
+    startBtn.disabled = true;
+
+    forceEndTimer = setTimeout(() => {
+
+        if (isRunning) {
+            endTest();
+        }
+
+    }, testDuration);
+
+    startTest();
+
+});
+
+//====================
+// 試行開始
+//====================
+
+function startTest() {
+
+    if (!isRunning) return;
+
+    box.style.background = "gray";
+    box.classList.add("waiting");
+    box.textContent = "✖";
+
+    waiting = true;
+
+    const delay = Math.random() * 8000 + 2000;
+
+    nextStimulusPerfTime = performance.now() + delay;
+
+    setTimeout(() => {
+
+        if (!isRunning) return;
+
+        requestAnimationFrame(() => {
+
+            if (!isRunning) return;
+
+            box.style.background = "red";
+            box.classList.remove("waiting");
+            box.textContent = "Enter!";
+
+            startTime = performance.now();
+
+            waiting = false;
+
+        });
+
+    }, delay);
+
+}
+
+//====================
+// Enterキー処理
+//====================
+
+document.addEventListener("keydown", (e) => {
+
+    if (e.key !== "Enter") return;
+
+    if (keyLocked) return;
+
+    keyLocked = true;
+
+    handleResponse();
+
+});
+
+document.addEventListener("keyup", (e) => {
+
+    if (e.key === "Enter") {
+        keyLocked = false;
+    }
+
+});
+
+//====================
+// 反応処理
+//====================
+
+function handleResponse() {
+
+    if (!isRunning) return;
+
+    // 先行反応
+    if (waiting) {
+
+        const remaining =
+            Math.round(nextStimulusPerfTime - performance.now());
+
+        results.push({
+            trial: "",
+            RT: -remaining
+        });
+
+        return;
+    }
+
+    // 正常反応
+    const endTime = performance.now();
+
+    const rt = Math.round(endTime - startTime);
+
+    const trialNumber =
+        results.filter(r => r.trial !== "").length + 1;
+
+    results.push({
+        trial: trialNumber,
+        RT: rt
+    });
+
+    startTest();
+
+}
+
+//====================
+// テスト終了
+//====================
+
+function endTest() {
+
+    if (!isRunning) return;
+
+    isRunning = false;
+
+    taskEndTime = new Date();
+
+    clearTimeout(forceEndTimer);
+
+    startBtn.disabled = false;
+
+    box.style.background = "black";
+    box.textContent = "終了";
+
+    downloadCSV();
+
+}
+
+//====================
+// CSV出力
+//====================
+
+function downloadCSV() {
+
+    const now = new Date();
+
+    const fileName =
+        now.getFullYear() +
+        String(now.getMonth() + 1).padStart(2, "0") +
+        String(now.getDate()).padStart(2, "0") +
+        "_" +
+        String(now.getHours()).padStart(2, "0") +
+        String(now.getMinutes()).padStart(2, "0");
+
+    let csv = "trial,RT,time\n";
+
+    results.forEach((row, index) => {
+
+        let timeCol = "";
+
+        if (index === 0) {
+            timeCol = formatTime(taskStartTime); // C2
+        }
+
+        if (index === 1) {
+            timeCol = formatTime(taskEndTime); // C3
+        }
+
+        csv +=
+            row.trial + "," +
+            row.RT + "," +
+            timeCol + "\n";
+
+    });
+
+    // データが0件または1件しかない場合の保険
+    if (results.length === 0) {
+
+        csv += ",," + formatTime(taskStartTime) + "\n";
+        csv += ",," + formatTime(taskEndTime) + "\n";
+
+    } else if (results.length === 1) {
+
+        csv += ",," + formatTime(taskEndTime) + "\n";
+
+    }
+
+    const blob = new Blob(
+        [csv],
+        { type: "text/csv;charset=utf-8;" }
+    );
+
+    const link = document.createElement("a");
+
+    link.href = URL.createObjectURL(blob);
+
+    link.download = "pvt_" + fileName + ".csv";
+
+    document.body.appendChild(link);
+
+    link.click();
+
+    document.body.removeChild(link);
+
+}
+
+</script>
+
+</body>
+</html>
